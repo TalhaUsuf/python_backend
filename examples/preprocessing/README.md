@@ -1,3 +1,110 @@
+# Yolov5 models
+
+## Torch to onnx
+
+```bash
+cd Yolov5-ONNX/exporter/yolov5
+```
+
+Convert torch ckpt to onnx model:
+
+```bash
+python python  export.py  --weights yolov5n.pt  --dynamic  --include onnx 
+python python  export.py  --weights yolov5s.pt  --dynamic  --include onnx 
+python python  export.py  --weights yolov5m.pt  --dynamic  --include onnx 
+```
+
+
+After this step, following files will be present:
+ [x] yolov5n.onnx
+ [x] yolov5s.onnx
+ [x] yolov5m.onnx
+
+
+
+## Onnx detection run check
+
+```bash
+cd ../../
+python detect.py --input ../mug.jpg --output detection.jpg  --weights "exporter/yolov5/yolov5m.onnx"
+```
+
+## Checking the inputs using Polygraphy
+
+
+```bash
+polygraphy   inspect model   exporter/yolov5/yolov5n.onnx
+```
+
+```markdown
+[I] Loading model: /home/fsuser/python_backend/examples/preprocessing/Yolov5-ONNX/exporter/yolov5/yolov5n.onnx
+[I] ==== ONNX Model ====
+    Name: torch_jit | ONNX Opset: 17
+    
+    ---- 1 Graph Input(s) ----
+    {images [dtype=float32, shape=('batch', 3, 'height', 'width')]}
+    
+    ---- 1 Graph Output(s) ----
+    {output0 [dtype=float32, shape=('batch', 'anchors', 'Concatoutput0_dim_2')]}
+    
+    ---- 123 Initializer(s) ----
+    
+    ---- 524 Node(s) ----
+```
+
+
+```bash
+polygraphy   inspect model   exporter/yolov5/yolov5s.onnx
+```
+
+```markdown
+[I] Loading model: /home/fsuser/python_backend/examples/preprocessing/Yolov5-ONNX/exporter/yolov5/yolov5s.onnx
+[I] ==== ONNX Model ====
+    Name: torch_jit | ONNX Opset: 17
+    
+    ---- 1 Graph Input(s) ----
+    {images [dtype=float32, shape=('batch', 3, 'height', 'width')]}
+    
+    ---- 1 Graph Output(s) ----
+    {output0 [dtype=float32, shape=('batch', 'anchors', 'Concatoutput0_dim_2')]}
+    
+    ---- 123 Initializer(s) ----
+    
+    ---- 524 Node(s) ----
+```
+
+
+```bash
+polygraphy   inspect model   exporter/yolov5/yolov5m.onnx
+```
+
+```markdown
+[I] Loading model: /home/fsuser/python_backend/examples/preprocessing/Yolov5-ONNX/exporter/yolov5/yolov5m.onnx
+[I] ==== ONNX Model ====
+    Name: torch_jit | ONNX Opset: 17
+    
+    ---- 1 Graph Input(s) ----
+    {images [dtype=float32, shape=('batch', 3, 'height', 'width')]}
+    
+    ---- 1 Graph Output(s) ----
+    {output0 [dtype=float32, shape=('batch', 'anchors', 'Concatoutput0_dim_2')]}
+    
+    ---- 167 Initializer(s) ----
+    
+    ---- 597 Node(s) ----
+```
+
+
+So in all cases, following info is needed for the `config.pbtxt`:
+ - {images [dtype=float32, shape=('batch', 3, 'height', 'width')]}
+ - {output0 [dtype=float32, shape=('batch', 'anchors', 'Concatoutput0_dim_2')]}
+
+
+
+
+
+
+
 # **Preprocessing Using Python Backend Example**
 This example shows how to preprocess your inputs using Python backend before it is passed to the TensorRT model for inference. This ensemble model includes an image preprocessing model (preprocess) and a TensorRT model (resnet50_trt) to do inference.
 

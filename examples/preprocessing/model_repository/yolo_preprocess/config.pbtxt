@@ -1,0 +1,29 @@
+# yolov5 preprocessing config.
+
+
+
+name: "yolo_preprocess"
+backend: "python"
+max_batch_size: 2 
+input [
+{
+    name: "pre_input"
+    data_type: TYPE_UINT8
+    dims: [ -1 ]
+}
+]
+ 
+output [
+{
+    name: "pre_output"
+    data_type: TYPE_FP32
+    dims: [ 3, -1, -1 ]
+}
+]
+
+instance_group [
+    {
+      count: 1
+      kind: KIND_CPU
+    }
+  ]
