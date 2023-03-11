@@ -79,14 +79,14 @@ class TritonPythonModel:
             # 💀 Each request will correspond to a single input image
             # Get pre_input tensor from the request read as bytes
             in_0 = pb_utils.get_input_tensor_by_name(request, "pre_input")
-
+            # in_0.as_numpy() is (1, 1005970), np.array - uint8
 
             # 🔴 convert bytes to numpy array
-            joblib.dump(in_0.as_numpy(), "in_0.joblib")
-            img = in_0.as_numpy()
+            # joblib.dump(in_0.as_numpy(), "in_0.joblib")  
+            img = in_0.as_numpy() # (1, 1005970), np.array - uint8
             # bytes to PIL image with RGB format
             image = Image.open(io.BytesIO(img.tobytes()))
-            image = np.array(image) # image --> [H, W, C]
+            image = np.array(image) # image --> [H, W, C], (2521, 3361, 3)
             #Console().log(f"🔵\t[green]converted input request data into np.array")
             
             #Console().log(f"🔵\t[green]original image dims. [red]{_H}x{_W}")
@@ -97,7 +97,7 @@ class TritonPythonModel:
             processed_image = processed_image.transpose((2, 0, 1))[::-1]
             processed_image = np.ascontiguousarray(processed_image)
             # normalize pixel values to 0 - 1 range
-            processed_image /= 255
+            processed_image = processed_image/255.0
             if len(processed_image.shape) == 3:
                 # convert to a rank-4 array
                 processed_image = np.expand_dims(processed_image, 0)

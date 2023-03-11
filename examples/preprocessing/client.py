@@ -4,8 +4,6 @@ import numpy as np
 import json
 
 import tritonclient.http as httpclient
-from tritonclient.utils import InferenceServerException
-import tritongrpcclient
 
 import argparse
 from PIL import Image
@@ -29,17 +27,20 @@ if __name__ == "__main__":
                         type=str,
                         required=True,
                         help="Path to the image")
-    parser.add_argument("--url",
-                        type=str,
-                        required=False,
-                        default="localhost:8001",
-                        help="Inference server URL. Default is localhost:8001.")
+    # parser.add_argument("--url",
+    #                     type=str,
+    #                     required=False,
+    #                     default="localhost:8001",
+    #                     help="Inference server URL. Default is localhost:8001.")
     parser.add_argument('-v',
                         "--verbose",
                         action="store_true",
                         required=False,
                         default=False,
                         help='Enable verbose output')
+    parser.add_argument('-t', '--type', type=str, default='http', help='http or grpc')
+    parser.add_argument('--url_http', type=str, default="localhost:8000", help='url to triton http server')
+    # parser.add_argument('--url_grpc', type=str, default="localhost:8001", help='url to triton grpc server')
     parser.add_argument(
         "--label_file",
         type=str,
@@ -47,16 +48,26 @@ if __name__ == "__main__":
         help="Path to the file with text representation of available labels")
     args = parser.parse_args()
 
-    try:
+    # try:
+    #     triton_client = httpclient.InferenceServerClient(
+    #             url=args.url, verbose=args.verbose)
+    # except Exception as e:
+    #     print("channel creation failed: " + str(e))
+    #     sys.exit(1)
+
+    # with open(args.label_file) as f:
+    #     labels_dict = {idx: line.strip() for idx, line in enumerate(f)}
+
+    
+    # if args.type=="grpc":
+    #     triton_client = tritongrpcclient.InferenceServerClient(
+    #         url=args.url_grpc, verbose=args.verbose)
+    
+    
+    if args.type=="http":
         triton_client = httpclient.InferenceServerClient(
-                url=args.url, verbose=args.verbose)
-    except Exception as e:
-        print("channel creation failed: " + str(e))
-        sys.exit(1)
-
-    with open(args.label_file) as f:
-        labels_dict = {idx: line.strip() for idx, line in enumerate(f)}
-
+            url=args.url_http, verbose=args.verbose)
+        
     
     
     # ==========================================================================
@@ -64,8 +75,8 @@ if __name__ == "__main__":
     # ==========================================================================
     if args.model_name == "yolo_preprocess":
         
-        triton_client = tritongrpcclient.InferenceServerClient(
-            url=args.url, verbose=args.verbose)
+        # triton_client = httpclient.InferenceServerClient(
+        #     url=args.url, verbose=args.verbose)
         
         inputs = []
         outputs = []
@@ -77,10 +88,10 @@ if __name__ == "__main__":
         # convert to batch
         image_data = np.expand_dims(image_data, axis=0)  # shape (1, 1005970)
         # create input and output tensors
-        inputs.append(tritongrpcclient.InferInput(input_name, image_data.shape, "UINT8"))
-        outputs.append(tritongrpcclient.InferRequestedOutput(output_name))
-        # inputs.append(httpclient.InferInput(input_name, image_data.shape, "UINT8"))
-        # outputs.append(httpclient.InferRequestedOutput(output_name))
+        # inputs.append(tritongrpcclient.InferInput(input_name, image_data.shape, "UINT8"))
+        # outputs.append(tritongrpcclient.InferRequestedOutput(output_name))
+        inputs.append(httpclient.InferInput(input_name, image_data.shape, "UINT8"))
+        outputs.append(httpclient.InferRequestedOutput(output_name))
         # put data into input tensor
         inputs[0].set_data_from_numpy(image_data)
         # run inference
@@ -101,8 +112,8 @@ if __name__ == "__main__":
         # ==========================================================================
         #                                yolov5                                   
         # ==========================================================================
-        triton_client = tritongrpcclient.InferenceServerClient(
-            url=args.url, verbose=args.verbose)
+        # triton_client = tritongrpcclient.InferenceServerClient(
+        #     url=args.url, verbose=args.verbose)
         
         inputs = []
         outputs = []
@@ -117,8 +128,8 @@ if __name__ == "__main__":
         image_data = np.expand_dims(image_data, axis=0)  # shape (1, 1005970)
 
         inputs.append(
-            tritongrpcclient.InferInput(input_name, image_data.shape, "FP32"))
-        outputs.append(tritongrpcclient.InferRequestedOutput(output_name))
+            httpclient.InferInput(input_name, image_data.shape, "FP32"))
+        outputs.append(httpclient.InferRequestedOutput(output_name))
         # inputs.append(
         #     tritongrpcclient.InferInput(input_name, image_data.shape, "UINT8"))
         # outputs.append(tritongrpcclient.InferRequestedOutput(output_name))
