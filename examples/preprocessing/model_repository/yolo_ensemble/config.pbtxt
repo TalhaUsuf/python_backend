@@ -1,0 +1,58 @@
+
+name: "yolo_ensemble"
+platform: "ensemble"
+max_batch_size: 2
+input [
+  {
+    name: "INPUT_ENSEMBLE"
+    data_type: TYPE_UINT8
+    dims: [ -1 ]
+  }
+]
+output [
+  {
+    name: "OUTPUT_ENSEMBLE"
+    data_type: TYPE_FP32
+    dims: [ -1, 6 ]
+  }
+]
+ensemble_scheduling {
+  step [
+    {
+      model_name: "yolo_preprocess"
+      model_version: -1
+      input_map {
+        key: "pre_input"
+        value: "INPUT_ENSEMBLE"
+      }
+      output_map {
+        key: "pre_output"
+        value: "preprocessed_image"
+      }
+    },
+    {
+      model_name: "yolov5"
+      model_version: -1
+      input_map {
+        key: "images"
+        value: "preprocessed_image"
+      }
+      output_map {
+        key: "output0"
+        value: "raw_detections"
+      }
+    },
+    {
+      model_name: "yolo_postprocess"
+      model_version: -1
+      input_map {
+        key: "post_input"
+        value: "raw_detections"
+      }
+      output_map {
+        key: "post_output"
+        value: "OUTPUT_ENSEMBLE"
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+--2023-03-12 03:36:15--  https://media.istockphoto.com/id/874686094/photo/people-crossing-street-in-new-york-city.jpg?s=612x612
+Resolving media.istockphoto.com (media.istockphoto.com)... 99.86.47.41, 99.86.47.67, 99.86.47.115, ...
+Connecting to media.istockphoto.com (media.istockphoto.com)|99.86.47.41|:443... connected.
+HTTP request sent, awaiting response... 400 Bad Request
+2023-03-12 03:36:16 ERROR 400: Bad Request.
+

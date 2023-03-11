@@ -9,15 +9,14 @@ from PIL import Image
 # Reference for pb_utils:
 # 🔖 https://github.com/triton-inference-server/python_backend/blob/main/src/resources/triton_python_backend_utils.py
 import triton_python_backend_utils as pb_utils
-import joblib
-
-
-from torchvision import transforms
-
+import torch
+import torchvision
 
 class TritonPythonModel:
-    """Your Python model must use the same class name. Every Python model
-    that is created must have "TritonPythonModel" as the class name.
+    """
+    Postprocessing applies NMS to each image. Since the model will run in ensemble mode and post-process will have
+    no connection with pre-process and hence not getting the original image size. So bbox--> real coordinate scaling will be done
+    on the request api side.
     """
 
     def initialize(self, args):
@@ -42,9 +41,9 @@ class TritonPythonModel:
 
         # Get OUTPUT0 configuration
         output0_config = pb_utils.get_output_config_by_name(
-            model_config, "pre_output")
+            model_config, "post_output")
 
-        # Triton dtypes ➡️ numpy types
+        # Triton dtypes (from pbtxt file) ➡️ numpy types
         self.output0_dtype = pb_utils.triton_string_to_numpy(
             output0_config['data_type'])
 
@@ -78,36 +77,20 @@ class TritonPythonModel:
         for request in requests:
             # 💀 Each request will correspond to a single input image
             # Get pre_input tensor from the request read as bytes
-            in_0 = pb_utils.get_input_tensor_by_name(request, "pre_input")
-            # in_0.as_numpy() is (1, 1005970), np.array - uint8
+            in_0 = pb_utils.get_input_tensor_by_name(request, "post_input")
+            in_0 = in_0.as_numpy()
+            # np.ndarray ➡️ torch tensor since the NMS is taken from torch
+            in_0 = torch.from_numpy(in_0).to(torch.device('cpu'))
+            pred = self.non_max_suppression(in_0, conf_thres = 0.25, iou_thres = 0.45, agnostic= False, max_det=1000)
+            # convert to the type expected by this model
+            nmsed_detections = np.array([np.array(k.tolist()).squeeze() for k in pred])
 
-            # 🔴 convert bytes to numpy array
-            # joblib.dump(in_0.as_numpy(), "in_0.joblib")  
-            img = in_0.as_numpy() # (1, 1005970), np.array - uint8
-            # bytes to PIL image with RGB format
-            image = Image.open(io.BytesIO(img.tobytes()))
-            image = np.array(image) # image --> [H, W, C], (2521, 3361, 3)
-            #Console().log(f"🔵\t[green]converted input request data into np.array")
-            
-            #Console().log(f"🔵\t[green]original image dims. [red]{_H}x{_W}")
-            # resize image while maintaining aspect ratio, by adding border
-            processed_image = self.letterbox(image, (640,640), stride=32, auto=False)
-            #Console().log(f"🔵\t[green]image has been letter-boxed to [red]640x640 [green] dims.")
-            # HWC ➡️ CHW and BGR ➡️ RGB
-            processed_image = processed_image.transpose((2, 0, 1))[::-1]
-            processed_image = np.ascontiguousarray(processed_image)
-            # normalize pixel values to 0 - 1 range
-            processed_image = processed_image/255.0
-            if len(processed_image.shape) == 3:
-                # convert to a rank-4 array
-                processed_image = np.expand_dims(processed_image, 0)
-            #Console().log(f"🔵\t[green]converted pixle values to [red]0-1 [green]range")
-            # output dtype needs to be float32 as specified in config.pbtxt file
-            processed_image = processed_image.astype(np.float32)
+
+
             
             #🔴 output0_dtype is the output dtype (np format) as decoded from config.pbtxt
-            out_tensor_0 = pb_utils.Tensor("pre_output",
-                                           processed_image.astype(output0_dtype))
+            out_tensor_0 = pb_utils.Tensor("post_output",
+                                           nmsed_detections.astype(output0_dtype))
 
             
             inference_response = pb_utils.InferenceResponse(
@@ -120,152 +103,101 @@ class TritonPythonModel:
         return responses
 
 
-    def letterbox(self, im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
-        '''
-        applies the letterbox operation to the input image, aspect ration is preserved.
+    
+    def non_max_suppression(self,
+                            prediction,
+                            conf_thres=0.25,
+                            iou_thres=0.45,
+                            agnostic=False,
+                            max_det=300):
+        
+        # ==========================================================================
+        #                        define sone helper functions                                  
+        # ==========================================================================
+        def xywh2xyxy(x):
+            # Convert nx4 boxes from [x, y, w, h] to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
+            y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+            y[:, 0] = x[:, 0] - x[:, 2] / 2  # top left x
+            y[:, 1] = x[:, 1] - x[:, 3] / 2  # top left y
+            y[:, 2] = x[:, 0] + x[:, 2] / 2  # bottom right x
+            y[:, 3] = x[:, 1] + x[:, 3] / 2  # bottom right y
+            return y
+        def box_area(box):
+            # box = xyxy(4,n)
+            return (box[2] - box[0]) * (box[3] - box[1])
+        def box_iou(box1, box2, eps=1e-7):
+            # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
+            (a1, a2), (b1, b2) = box1[:, None].chunk(2, 2), box2.chunk(2, 1)
+            inter = (torch.min(a2, b2) - torch.max(a1, b1)).clamp(0).prod(2)
 
-        Parameters
-        ----------
-        im : np.ndarray
-            _description_
-        new_shape : tuple, optional
-            _description_, by default (640, 640)
-        color : tuple, optional
-            _description_, by default (114, 114, 114)
-        auto : bool, optional
-            _description_, by default True
-        scaleFill : bool, optional
-            _description_, by default False
-        scaleup : bool, optional
-            _description_, by default True
-        stride : int, optional
-            _description_, by default 32
+            # IoU = inter / (area1 + area2 - inter)
+            return inter / (box_area(box1.T)[:, None] + box_area(box2.T) - inter + eps)
+        
+        
+        # # --------------------------------------------------------------------------
+        # #                              actual NMS starts here                        
+        # # --------------------------------------------------------------------------
+        
+        bs = prediction.shape[0]  # batch size
+        xc = prediction[..., 4] > conf_thres  # candidates
+        # Settings
+        # min_wh = 2  # (pixels) minimum box width and height
+        max_wh = 7680  # (pixels) maximum box width and height
+        max_nms = 30000  # maximum number of boxes into torchvision.ops.nms()
+        redundant = True  # require redundant detections
+        merge = False  # use merge-NMS
+        output = [torch.zeros((0, 6), device = prediction.device)] * bs
+        for xi, x in enumerate(prediction):  # image index, image inference
+            # Apply constraints
+            # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
+            x = x[xc[xi]]  # confidence
+            # If none remain process next image
+            if not x.shape[0]:
+                continue
 
-        Returns
-        -------
-        np.ndarray
-            scaled image
-        '''        
-        # Resize and pad image while meeting stride-multiple constraints
-        shape = im.shape[:2]  # current shape [height, width]
-        if isinstance(new_shape, int):
-            new_shape = (new_shape, new_shape)
+            # Compute conf
+            x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
 
-        # Scale ratio (new / old)
-        r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
-        if not scaleup:  # only scale down, do not scale up (for better val mAP)
-            r = min(r, 1.0)
+            # Box (center x, center y, width, height) to (x1, y1, x2, y2)
+            box = xywh2xyxy(x[:, :4])
 
-        # Compute padding
-        ratio = r, r  # width, height ratios
-        new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-        dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
-        if auto:  # minimum rectangle
-            dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
-        elif scaleFill:  # stretch
-            dw, dh = 0.0, 0.0
-            new_unpad = (new_shape[1], new_shape[0])
-            ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+            # Detections matrix nx6 (xyxy, conf, cls)
+            conf, j = x[:, 5:].max(1, keepdim=True)
+            x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
+            # Apply finite constraint
+            # if not torch.isfinite(x).all():
+            #     x = x[torch.isfinite(x).all(1)]
 
-        dw /= 2  # divide padding into 2 sides
-        dh /= 2
+            # Check shape
+            n = x.shape[0]  # number of boxes
+            if not n:  # no boxes
+                continue
+            elif n > max_nms:  # excess boxes
+                x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence
 
-        if shape[::-1] != new_unpad:  # resize
-            im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
-        top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
-        left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-        im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
-        return im
+            # Batched NMS
+            c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
+            boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
+            i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
+            if i.shape[0] > max_det:  # limit detections
+                i = i[:max_det]
+            if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
+                # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
+                iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
+                weights = iou * scores[None]  # box weights
+                x[i, :4] = torch.mm(weights, x[:, :4]).float() / weights.sum(1, keepdim=True)  # merged boxes
+                if redundant:
+                    i = i[iou.sum(1) > 1]  # require redundancy
 
-
+            output[xi] = x[i]
+        return output
 
 
 
 
 
     def finalize(self):
-        """`finalize` is called only once when the model is being unloaded.
-        Implementing `finalize` function is OPTIONAL. This function allows
-        the model to perform any necessary clean ups before exit.
+        """upon model unloading, since for the task model is being loaded in polling mode so this function will
+        cannot be called from request
         """
-        print('👉\tUnloading the yolo_preprocess function')
-        
-        
-    # def execute(self, requests):
-    #     """`execute` MUST be implemented in every Python model. `execute`
-    #     function receives a list of pb_utils.InferenceRequest as the only
-    #     argument. This function is called when an inference request is made
-    #     for this model. Depending on the batching configuration (e.g. Dynamic
-    #     Batching) used, `requests` may contain multiple requests. Every
-    #     Python model, must create one pb_utils.InferenceResponse for every
-    #     pb_utils.InferenceRequest in `requests`. If there is an error, you can
-    #     set the error argument when creating a pb_utils.InferenceResponse
-
-    #     Parameters
-    #     ----------
-    #     requests : list
-    #       A list of pb_utils.InferenceRequest
-
-    #     Returns
-    #     -------
-    #     list
-    #       A list of pb_utils.InferenceResponse. The length of this list must
-    #       be the same as `requests`
-    #     """
-
-    #     output0_dtype = self.output0_dtype
-
-    #     responses = []
-
-    #     # Every Python backend must iterate over everyone of the requests
-    #     # and create a pb_utils.InferenceResponse for each of them.
-    #     for request in requests:
-    #         # Get INPUT0
-    #         in_0 = pb_utils.get_input_tensor_by_name(request, "pre_input")
-
-    #         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-    #                                          std=[0.229, 0.224, 0.225])
-
-    #         loader = transforms.Compose([
-    #             transforms.Resize([224, 224]),
-    #             transforms.CenterCrop(224),
-    #             transforms.ToTensor(), normalize
-    #         ])
-
-    #         def image_loader(image_name):
-    #             image = loader(image_name)
-    #             #expand the dimension to nchw
-    #             image = image.unsqueeze(0)
-    #             return image
-
-    #         # 🔴 convert bytes to numpy array
-    #         img = in_0.as_numpy()
-    #         image = Image.open(io.BytesIO(img.tobytes()))
-    #         print(f"-------------- {np.array(image).shape}-----------------------")
-    #         img_out = image_loader(image)
-    #         img_out = np.array(img_out)
-
-    #         out_tensor_0 = pb_utils.Tensor("pre_output",
-    #                                        img_out.astype(output0_dtype))
-
-    #         # Create InferenceResponse. You can set an error here in case
-    #         # there was a problem with handling this inference request.
-    #         # Below is an example of how you can set errors in inference
-    #         # response:
-    #         #
-    #         # pb_utils.InferenceResponse(
-    #         #    output_tensors=..., TritonError("An error occured"))
-    #         inference_response = pb_utils.InferenceResponse(
-    #             output_tensors=[out_tensor_0])
-    #         responses.append(inference_response)
-
-    #     # You should return a list of pb_utils.InferenceResponse. Length
-    #     # of this list must match the length of `requests` list.
-    #     return responses
-
-    # def finalize(self):
-    #     """`finalize` is called only once when the model is being unloaded.
-    #     Implementing `finalize` function is OPTIONAL. This function allows
-    #     the model to perform any necessary clean ups before exit.
-    #     """
-    #     print('Cleaning up...')
+        print('👉\tUnloading the yolo_postprocessing function')

@@ -104,6 +104,39 @@ So in all cases, following info is needed for the `config.pbtxt`:
 
 
 
+# Sending the requests
+
+
+
+```bash
+python client.py   --image  mug.jpg    --model_name  yolo_preprocess
+```
+
+
+```bash
+python client.py   --image  mug.jpg    --model_name  yolov5
+```
+
+```bash
+python client.py   --image  mug.jpg    --model_name  yolo_postprocess
+```
+
+```bash
+python client.py   --image  mug.jpg    --model_name  yolo_ensemble
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # **Preprocessing Using Python Backend Example**
 This example shows how to preprocess your inputs using Python backend before it is passed to the TensorRT model for inference. This ensemble model includes an image preprocessing model (preprocess) and a TensorRT model (resnet50_trt) to do inference.

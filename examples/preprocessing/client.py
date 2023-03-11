@@ -147,11 +147,69 @@ if __name__ == "__main__":
         output0_data = results.as_numpy(output_name)
         print(output0_data.shape)
         
+    if args.model_name == "yolo_postprocess":
+    # --------------------------------------------------------------------------
+    #   🔴                 POST PROCESSING after this                        
+    # --------------------------------------------------------------------------
+        inputs = []
+        outputs = []
+        input_name = "post_input"
         
-    # # --------------------------------------------------------------------------
-    # #   🔴                 POST PROCESSING after this                        
-    # # --------------------------------------------------------------------------
-    
+        output_name = "post_output"
+        
+        # create dummy input as yolo output shape
+        sample_input = np.random.rand(1, 25200, 85).astype(np.float32)
+        
+        
+
+        inputs.append(
+            httpclient.InferInput(input_name, sample_input.shape, "FP32"))
+        outputs.append(httpclient.InferRequestedOutput(output_name))
+        
+
+        
+        inputs[0].set_data_from_numpy(sample_input)
+        
+        results = triton_client.infer(model_name=args.model_name,
+                                    inputs=inputs,
+                                    outputs=outputs)
+
+        # output0_data = results.as_numpy(output_name)
+        output0_data = results.as_numpy(output_name)
+        print(output0_data.shape)
+        
+    if args.model_name == "yolo_ensemble":
+    # --------------------------------------------------------------------------
+    #   🔴                 ENSEMBLE                        
+    # --------------------------------------------------------------------------
+        inputs = []
+        outputs = []
+        input_name = "INPUT_ENSEMBLE"
+        
+        output_name = "OUTPUT_ENSEMBLE"
+        
+        image_data = np.array(Image.open(args.image).resize((640,640)).convert('RGB'))
+        # convert HWC to CHW format
+        image_data = (image_data.transpose((2, 0, 1)) / 255.0).astype(np.float32)
+        # image_data = load_image(args.image) # shape (1005970,)
+        image_data = np.expand_dims(image_data, axis=0)  # shape (1, 1005970)
+
+        inputs.append(httpclient.InferInput(input_name, image_data.shape, "UINT8"))
+        outputs.append(httpclient.InferRequestedOutput(output_name))
+
+        
+
+        
+        inputs[0].set_data_from_numpy(image_data)
+        
+        results = triton_client.infer(model_name=args.model_name,
+                                    inputs=inputs,
+                                    outputs=outputs)
+
+        # output0_data = results.as_numpy(output_name)
+        output0_data = results.as_numpy(output_name)
+        print(output0_data.shape)
+        
     
     # maxs = np.argmax(output0_data, axis=1)
     # print(maxs)
