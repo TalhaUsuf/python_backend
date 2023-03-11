@@ -1,0 +1,3 @@
+[submodule "examples/preprocessing/Yolov5-ONNX"]
+	path = examples/preprocessing/Yolov5-ONNX
+	url = git@github.com:TalhaUsuf/Yolov5-ONNX.git
