@@ -4,7 +4,7 @@ import numpy as np
 import json
 
 import tritonclient.http as httpclient
-
+import torch
 import argparse
 from PIL import Image
 
@@ -14,6 +14,32 @@ def load_image(img_path: str):
     
     """
     return np.fromfile(img_path, dtype='uint8')
+
+def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
+    # Rescale coords (xyxy) from img1_shape to img0_shape
+    if ratio_pad is None:  # calculate from img0_shape
+        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
+        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
+    else:
+        gain = ratio_pad[0][0]
+        pad = ratio_pad[1]
+
+    coords[:, [0, 2]] -= pad[0]  # x padding
+    coords[:, [1, 3]] -= pad[1]  # y padding
+    coords[:, :4] /= gain
+    clip_coords(coords, img0_shape)
+    return coords
+def clip_coords(boxes, shape):
+    # Clip bounding xyxy bounding boxes to image shape (height, width)
+    if isinstance(boxes, torch.Tensor):  # faster individually
+        boxes[:, 0].clamp_(0, shape[1])  # x1
+        boxes[:, 1].clamp_(0, shape[0])  # y1
+        boxes[:, 2].clamp_(0, shape[1])  # x2
+        boxes[:, 3].clamp_(0, shape[0])  # y2
+    else:  # np.array (faster grouped)
+        boxes[:, [0, 2]] = boxes[:, [0, 2]].clip(0, shape[1])  # x1, x2
+        boxes[:, [1, 3]] = boxes[:, [1, 3]].clip(0, shape[0])  # y1, y2
+
 
 
 if __name__ == "__main__":
@@ -188,10 +214,9 @@ if __name__ == "__main__":
         
         output_name = "OUTPUT_ENSEMBLE"
         
-        image_data = np.array(Image.open(args.image).resize((640,640)).convert('RGB'))
-        # convert HWC to CHW format
-        image_data = (image_data.transpose((2, 0, 1)) / 255.0).astype(np.float32)
-        # image_data = load_image(args.image) # shape (1005970,)
+        sz = Image.open(args.image).size
+        image_data = load_image(args.image) # shape (1005970,)
+        # convert to batch
         image_data = np.expand_dims(image_data, axis=0)  # shape (1, 1005970)
 
         inputs.append(httpclient.InferInput(input_name, image_data.shape, "UINT8"))
@@ -206,9 +231,32 @@ if __name__ == "__main__":
                                     inputs=inputs,
                                     outputs=outputs)
 
-        # output0_data = results.as_numpy(output_name)
+        
         output0_data = results.as_numpy(output_name)
-        print(output0_data.shape)
+        # import joblib
+        
+        # joblib.dump(output0_data, "ensemble_out.pkl")
+        # print(output0_data.shape)
+        
+        
+        # # --------------------------------------------------------------------------
+        # #                        map detections to labels                        
+        # # --------------------------------------------------------------------------
+        
+        for i, det in enumerate(output0_data):
+            # im0 --> resized image
+            # im --> original image
+            det[:, :4] = scale_coords([640, 640], det[:, :4], sz).round()
+        # print(det)
+        
+        
+        # #annotate the image
+        for *xyxy, conf, _cls in reversed(det):
+            c = int(_cls)  # integer class
+            # label = f'{names[c]} {conf:.2f}'
+            print(f"detected : {c} with conf. {conf}, coordinates : {xyxy}")
+            # annotator.box_label(xyxy, label, color=colors(c, True))
+        
         
     
     # maxs = np.argmax(output0_data, axis=1)
